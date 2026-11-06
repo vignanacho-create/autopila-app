@@ -128,7 +128,7 @@
     </div>
     <div class="card">
       <h2>Proveedores</h2>
-      <p class="sub">Corrige nombre, NIF, qué es y cada cuánto factura. Si cambias qué es, las reglas de ese proveedor se rehacen solas.</p>
+      <p class="sub">Corrige nombre, NIF y qué es. Si cambias qué es, las reglas de ese proveedor se rehacen solas.</p>
       <button id="p-go" class="sec">Ver proveedores</button>
       <div id="p-list"></div>
     </div>
@@ -399,7 +399,7 @@ async function loadQuestions() {
         const e = expOf.get(x);
         return `<label style="font-weight:400"><input type="checkbox" name="exp" value="${esc(x)}" style="width:auto" ${sug.has(x) ? "checked" : ""}> Cargo del ${esc(e?.expense_date ?? "?")} · ${eur(e?.net_payable_cents)}</label>`;
       }).join("");
-      form = rows + (q.source_ref.ask_rhythm ? `<label>¿Cada cuánto te factura este proveedor?</label><select name="rhythm">${RHYTHM_OPTS}</select>` : "")
+      form = rows
         + `<button data-a="unir">Unir a los marcados</button> <button class="sec" data-a="nounir">Ninguno de estos</button>`;
     }
     else if (t === "emparejar") form = `<button data-a='{"accept":true}'>Sí</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
@@ -415,22 +415,19 @@ async function loadQuestions() {
       ${skip}<div class="ans"></div></div>`;
   }).join("");
 }
-const RHYTHM = { desconocido: "No lo sé", por_compra: "Una factura por compra", semanal: "Semanal", quincenal: "Quincenal", mensual: "Mensual (agrupa el mes)", otro: "Otro" };
-const RHYTHM_OPTS = Object.entries(RHYTHM).map(([k, v]) => `<option value="${k === "desconocido" ? "" : k}">${v}</option>`).join("");
 
 // ---------- proveedores ----------
 async function loadContacts() {
   await loadMyCats();
-  const { data, error } = await sb.from("contacts").select("id, legal_name, nif, category, billing_rhythm").eq("company_id", ctx.company.id).order("legal_name");
+  const { data, error } = await sb.from("contacts").select("id, legal_name, nif, category").eq("company_id", ctx.company.id).order("legal_name");
   if (error) return show($("p-list"), "bad", esc(error.message));
   if (!data.length) { $("p-list").innerHTML = `<p class="hint">Aún no hay proveedores.</p>`; return; }
   $("p-list").innerHTML = data.map((c) => `<details class="card" data-c="${esc(c.id)}" style="margin:8px 0">
-    <summary><b>${esc(c.legal_name)}</b> <span class="hint">· ${esc(c.nif ?? "sin NIF")} · ${esc(c.category ?? "sin categoría")} · ${esc(RHYTHM[c.billing_rhythm ?? "desconocido"])}</span></summary>
+    <summary><b>${esc(c.legal_name)}</b> <span class="hint">· ${esc(c.nif ?? "sin NIF")} · ${esc(c.category ?? "sin categoría")}</span></summary>
     <div class="row"><div><label>Nombre</label><input name="legal_name" value="${esc(c.legal_name)}"></div>
       <div><label>NIF</label><input name="nif" value="${esc(c.nif ?? "")}"></div></div>
     <label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((k) => `<option ${k === c.category ? "selected" : ""}>${esc(k)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
     <input name="category_new" class="hidden" placeholder="Escribe qué es">
-    <label>¿Cada cuánto factura?</label><select name="rhythm">${Object.entries(RHYTHM).map(([k, v]) => `<option value="${k}" ${k === (c.billing_rhythm ?? "desconocido") ? "selected" : ""}>${v}</option>`).join("")}</select>
     <button data-save>Guardar cambios</button><div class="ans"></div></details>`).join("");
 }
 $("p-go").addEventListener("click", loadContacts);
@@ -446,7 +443,6 @@ $("p-list").addEventListener("click", async (e) => {
   const cat = v("category").value === "__otra" ? v("category_new").value.trim().toLowerCase() : v("category").value;
   if (v("category").value === "__otra" && !cat) return show(box.querySelector(".ans"), "bad", "Escribe qué es");
   const patch = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: cat };
-  if (v("rhythm").value !== "desconocido") patch.billing_rhythm = v("rhythm").value;
   b.disabled = true;
   const { data, error } = await sb.rpc("update_contact", { p_contact: box.dataset.c, p_patch: patch });
   b.disabled = false;
@@ -473,12 +469,11 @@ $("q-list").addEventListener("click", async (e) => {
     answer = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: cat, internal: v("internal").checked || undefined };
     if (answer.internal) answer.kind = "traspaso_interno";
   } else if (b.dataset.a === "unir" || b.dataset.a === "nounir") {
-    const r = box.querySelector("[name=rhythm]")?.value || undefined;
     if (b.dataset.a === "unir") {
       const ids = [...box.querySelectorAll("[name=exp]:checked")].map((c) => c.value);
       if (!ids.length) return show(box.querySelector(".ans"), "bad", "Marca al menos un cargo");
-      answer = { accept: true, expense_ids: ids, billing_rhythm: r };
-    } else answer = { accept: false, billing_rhythm: r };
+      answer = { accept: true, expense_ids: ids };
+    } else answer = { accept: false };
   } else answer = JSON.parse(b.dataset.a);
   b.disabled = true;
   const { error } = await sb.rpc("answer_question", { p_question: box.dataset.q, p_answer: answer });
