@@ -361,7 +361,15 @@ async function runReconcile() {
   } catch (err) { show($("m-r"), "bad", esc(err.message)); }
   await loadQuestions();
 }
+// Categorías: las de siempre + las que tú has ido escribiendo (salen de tus proveedores)
+let myCats = [];
+const allCats = () => [...new Set([...CATS, ...myCats])];
+async function loadMyCats() {
+  const { data } = await sb.from("contacts").select("category").eq("company_id", ctx.company.id).not("category", "is", null);
+  myCats = [...new Set((data ?? []).map((c) => c.category).filter(Boolean))].sort();
+}
 async function loadQuestions() {
+  await loadMyCats();
   const { data, error } = await sb.from("pending_questions").select("id, question, source_ref").eq("company_id", ctx.company.id).eq("status", "abierta").order("created_at");
   if (error) return show($("q-list"), "bad", esc(error.message));
   if (!data.length) { $("q-list").innerHTML = `<p class="hint">No hay preguntas pendientes.</p>`; return; }
@@ -372,7 +380,8 @@ async function loadQuestions() {
     else if (t === "emparejar") form = `<button data-a='{"accept":true}'>Sí</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
     else form = `<div class="row"><div><label>¿Quién es?</label><input name="legal_name" value="${esc(q.source_ref?.name ?? "")}"></div>
         <div><label>NIF <span class="hint">(si lo sabes)</span></label><input name="nif" value="${esc(q.source_ref?.nif ?? "")}"></div></div>
-        <label>¿Qué es?</label><select name="category"><option value="">—</option>${CATS.map((c) => `<option>${c}</option>`).join("")}</select>
+        <label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((c) => `<option>${esc(c)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
+        <input name="category_new" class="hidden" placeholder="Escribe qué es (p. ej. hielo, gas, uniformes)">
         <label style="font-weight:400"><input type="checkbox" name="internal" style="width:auto" ${q.source_ref?.suggest_internal ? "checked" : ""}> Es un traspaso entre cuentas de la empresa</label>
         <button data-a="form">Guardar</button>`;
     return `<div class="card" data-q="${id}" style="margin:10px 0"><p>${esc(q.question)}</p>${form}
@@ -380,13 +389,22 @@ async function loadQuestions() {
   }).join("");
 }
 $("r-go").addEventListener("click", async (e) => { e.target.disabled = true; try { await runReconcile(); } finally { e.target.disabled = false; } });
+$("q-list").addEventListener("change", (e) => {
+  if (e.target.name !== "category") return;
+  const box = e.target.closest("[data-q]");
+  const other = box.querySelector("[name=category_new]");
+  other.classList.toggle("hidden", e.target.value !== "__otra");
+  if (e.target.value === "__otra") other.focus();
+});
 $("q-list").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-a]"); if (!b) return;
   const box = b.closest("[data-q]");
   let answer;
   if (b.dataset.a === "form") {
     const v = (n) => box.querySelector(`[name=${n}]`);
-    answer = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: v("category").value, internal: v("internal").checked || undefined };
+    const cat = v("category").value === "__otra" ? v("category_new").value.trim().toLowerCase() : v("category").value;
+    if (v("category").value === "__otra" && !cat) return show(box.querySelector(".ans"), "bad", "Escribe qué es");
+    answer = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: cat, internal: v("internal").checked || undefined };
     if (answer.internal) answer.kind = "traspaso_interno";
   } else answer = JSON.parse(b.dataset.a);
   b.disabled = true;
