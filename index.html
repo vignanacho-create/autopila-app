@@ -51,7 +51,15 @@
   <!-- 1. Entrar con código por email -->
   <section class="card hidden" id="v-login">
     <h2>Entrar</h2>
-    <form id="f-email">
+    <form id="f-pass">
+      <label for="p-email">Tu email</label>
+      <input id="p-email" type="email" autocomplete="username" required>
+      <label for="p-pass">Contraseña</label>
+      <input id="p-pass" type="password" autocomplete="current-password" required>
+      <button type="submit">Entrar</button>
+      <button type="button" class="sec" id="use-link">Aún no tengo contraseña: enviarme un enlace</button>
+    </form>
+    <form id="f-email" class="hidden">
       <label for="email">Tu email</label>
       <input id="email" type="email" autocomplete="email" required>
       <button type="submit">Enviarme el enlace para entrar</button>
@@ -100,6 +108,17 @@
       <button id="x-go">Subir extracto</button>
       <div id="m-x"></div>
     </div>
+    <div class="card hidden" id="v-setpass">
+      <h2>Pon tu contraseña</h2>
+      <p class="sub">Para entrar la próxima vez con email y contraseña, sin enlaces. Tu navegador puede guardarla.</p>
+      <form id="f-setpass">
+        <input type="email" autocomplete="username" id="sp-user" style="display:none">
+        <label for="sp-pass">Contraseña nueva <span class="hint">· mínimo 8 caracteres</span></label>
+        <input id="sp-pass" type="password" autocomplete="new-password" minlength="8" required>
+        <button type="submit">Guardar contraseña</button>
+      </form>
+      <div id="m-sp"></div>
+    </div>
     <div class="card">
       <h2>Cuadre del banco</h2>
       <p class="sub">Clasifica los movimientos, une cada cargo con su factura y te pregunta solo lo que no sabe (una vez).</p>
@@ -136,6 +155,27 @@ let ctx = { company: null, center: null };
 let pendingEmail = "";
 
 // ---------- entrar ----------
+$("f-pass").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  const { error } = await sb.auth.signInWithPassword({ email: $("p-email").value.trim(), password: $("p-pass").value });
+  btn.disabled = false;
+  if (error) return show($("m-login"), "bad", "Email o contraseña incorrectos. Si aún no tienes contraseña, entra con el enlace.");
+  $("m-login").innerHTML = "";
+  await route();
+});
+$("use-link").addEventListener("click", () => { $("f-pass").classList.add("hidden"); $("f-email").classList.remove("hidden"); $("email").value = $("p-email").value; });
+$("f-setpass").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  const { error } = await sb.auth.updateUser({ password: $("sp-pass").value });
+  btn.disabled = false;
+  if (error) return show($("m-sp"), "bad", esc(error.message));
+  $("sp-pass").value = "";
+  try { localStorage.setItem("autopila_pass_ok", "1"); } catch { /* sin almacenamiento */ }
+  show($("m-sp"), "ok", "Contraseña guardada. La próxima vez entra con tu email y esta contraseña.");
+  setTimeout(() => $("v-setpass").classList.add("hidden"), 3000);
+});
 $("f-email").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = e.submitter; btn.disabled = true;
@@ -185,6 +225,9 @@ async function route() {
   ctx.center = centers?.[0] ?? null;
   $("who").textContent = `${ctx.company.name} · ${ctx.company.nif}${ctx.center ? " · " + ctx.center.name : ""}`;
   view("v-main");
+  $("sp-user").value = session.user.email ?? "";
+  let passOk = false; try { passOk = localStorage.getItem("autopila_pass_ok") === "1"; } catch { /* sin almacenamiento */ }
+  $("v-setpass").classList.toggle("hidden", passOk || session.user.app_metadata?.providers?.includes("email") && session.user.user_metadata?.password_set);
   loadQuestions();
 }
 
