@@ -409,8 +409,10 @@ async function loadQuestions() {
         <input name="category_new" class="hidden" placeholder="Escribe qué es (p. ej. hielo, gas, uniformes)">
         <label style="font-weight:400"><input type="checkbox" name="internal" style="width:auto" ${q.source_ref?.suggest_internal ? "checked" : ""}> Es un traspaso entre cuentas de la empresa</label>
         <button data-a="form">Guardar</button>`;
+    // «Unir factura» no se puede saltar: saltarla dejaría la compra contada dos veces
+    const skip = t === "unir_factura" ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
     return `<div class="card" data-q="${id}" style="margin:10px 0"><p>${esc(q.question)}</p>${form}
-      <button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button><div class="ans"></div></div>`;
+      ${skip}<div class="ans"></div></div>`;
   }).join("");
 }
 const RHYTHM = { desconocido: "No lo sé", por_compra: "Una factura por compra", semanal: "Semanal", quincenal: "Quincenal", mensual: "Mensual (agrupa el mes)", otro: "Otro" };
