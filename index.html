@@ -124,6 +124,8 @@ const SUPABASE_URL = "https://wxlhhsglmobhgalksfpa.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_rglWawrLOPlcQcVqszGoJw_lztdsB1o";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+// En la dirección web, el enlace del correo vuelve aquí y entra solo; abierta como archivo, se pega el enlace
+const HOSTED = location.protocol === "https:";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const eur = (c) => c == null ? "—" : (c / 100).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
@@ -138,11 +140,11 @@ $("f-email").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = e.submitter; btn.disabled = true;
   pendingEmail = $("email").value.trim();
-  const { error } = await sb.auth.signInWithOtp({ email: pendingEmail, options: { shouldCreateUser: false } });
+  const { error } = await sb.auth.signInWithOtp({ email: pendingEmail, options: { shouldCreateUser: false, emailRedirectTo: HOSTED ? location.origin + location.pathname : undefined } });
   btn.disabled = false;
   if (error) return show($("m-login"), "bad", /signups? not allowed|not found/i.test(error.message) ? "Ese email no tiene acceso. Pide una invitación al propietario." : esc(error.message));
   $("f-email").classList.add("hidden"); $("f-code").classList.remove("hidden");
-  show($("m-login"), "info", `Te he enviado un correo a <b>${esc(pendingEmail)}</b> (de Supabase; mira también en spam). Copia su enlace y pégalo aquí.`);
+  show($("m-login"), "info", HOSTED ? `Te he enviado un correo a <b>${esc(pendingEmail)}</b> (de Supabase; mira también en spam). <b>Pulsa el enlace</b> y entrarás directamente.` : `Te he enviado un correo a <b>${esc(pendingEmail)}</b> (de Supabase; mira también en spam). Copia su enlace y pégalo aquí.`);
   $("code").focus();
 });
 $("f-code").addEventListener("submit", async (e) => {
