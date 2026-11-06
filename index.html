@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AUTOPILA · Kraken</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root { --ink:#1c2430; --mute:#6b7685; --line:#e3e7ec; --bg:#f6f7f9; --ok:#1f7a4d; --warn:#9a6700; --bad:#b42318; --accent:#14406b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:var(--bg); }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  .sub { color: var(--mute); margin: 0 0 20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:12px 0 4px; }
+  .hint { color:var(--mute); font-size:14px; font-weight:400; }
+  input, select { width:100%; padding:10px 12px; font:inherit; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  button { font:inherit; font-weight:600; padding:11px 18px; border-radius:8px; border:0; background:var(--accent); color:#fff; cursor:pointer; margin-top:16px; }
+  button.sec { background:#fff; color:var(--accent); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:wait; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .row > * { flex:1 1 200px; }
+  .msg { margin-top:12px; padding:10px 12px; border-radius:8px; font-size:15px; }
+  .msg.bad { background:#fdecea; color:var(--bad); }
+  .msg.ok { background:#e8f5ee; color:var(--ok); }
+  .msg.info { background:#eef3f8; color:var(--accent); }
+  .hidden { display:none; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:13px; font-weight:600; }
+  .pill.correcta { background:#e8f5ee; color:var(--ok); }
+  .pill.con_dudas { background:#fff4d6; color:var(--warn); }
+  .pill.erronea { background:#fdecea; color:var(--bad); }
+  .pill.no_es_compra { background:#eef0f3; color:var(--mute); }
+  table { width:100%; border-collapse:collapse; font-size:14px; margin-top:8px; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); vertical-align:top; }
+  td.n, th.n { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
+  dl { display:grid; grid-template-columns: max-content 1fr; gap:4px 16px; margin:8px 0; }
+  dt { color:var(--mute); } dd { margin:0; font-variant-numeric: tabular-nums; }
+  ul.f { margin:6px 0; padding-left:20px; }
+  .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div><h1>AUTOPILA</h1><p class="sub" id="who">Gestión de Kraken</p></div>
+    <button class="sec hidden" id="logout">Salir</button>
+  </div>
+
+  <!-- 1. Entrar con código por email -->
+  <section class="card hidden" id="v-login">
+    <h2>Entrar</h2>
+    <form id="f-email">
+      <label for="email">Tu email</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <button type="submit">Enviarme el código</button>
+    </form>
+    <form id="f-code" class="hidden">
+      <label for="code">Enlace del correo <span class="hint">· en el correo de Supabase, mantén pulsado (o clic derecho) «Sign in» o «Confirm your mail», copia el enlace y pégalo aquí. No lo abras. También vale un código de 6 cifras.</span></label>
+      <input id="code" autocomplete="off" required>
+      <button type="submit">Entrar</button>
+      <button type="button" class="sec" id="other-email">Usar otro email</button>
+    </form>
+    <div id="m-login"></div>
+  </section>
+
+  <!-- 2. Primera vez: confirmar la empresa y el negocio -->
+  <section class="card hidden" id="v-alta">
+    <h2>Confirma tu empresa</h2>
+    <p class="sub">Revisa los datos. Se crean una sola vez y quedas como propietario.</p>
+    <form id="f-alta">
+      <label for="c-name">Nombre fiscal</label>
+      <input id="c-name" required value="Bichobola SL">
+      <div class="row">
+        <div><label for="c-nif">NIF</label><input id="c-nif" required value="B26903278"></div>
+        <div><label for="c-form">Forma jurídica</label>
+          <select id="c-form"><option value="sociedad" selected>Sociedad (SL, SA)</option><option value="autonomo">Autónomo</option><option value="otra">Otra</option></select></div>
+      </div>
+      <label for="c-start">¿Desde qué fecha lleva la empresa este negocio? <span class="hint">· la de inicio de actividad de la SL en Kraken</span></label>
+      <input id="c-start" type="date" required>
+      <label for="n-name">Nombre del negocio</label>
+      <input id="n-name" required value="Kraken">
+      <label for="n-addr">Dirección del negocio</label>
+      <input id="n-addr" value="Mercat de l'Olivar, Puesto 41, Palma">
+      <button type="submit">Crear empresa y negocio</button>
+    </form>
+    <div id="m-alta"></div>
+  </section>
+
+  <!-- 3. Subir documentos -->
+  <section class="hidden" id="v-main">
+    <div class="card">
+      <h2>Subir extracto</h2>
+      <p class="sub">Archivo Norma 43 del banco (.txt o .n43). Se comprueba entero antes de guardar nada.</p>
+      <label for="x-file">Extracto</label>
+      <input id="x-file" type="file" accept=".txt,.n43,.aeb,text/plain">
+      <label for="x-alta">Cuentas de este negocio <span class="hint">· cuatro últimas cifras, separadas por comas. Solo hace falta la primera vez.</span></label>
+      <input id="x-alta" value="5861">
+      <button id="x-go">Subir extracto</button>
+      <div id="m-x"></div>
+    </div>
+    <div class="card">
+      <h2>Cuadre del banco</h2>
+      <p class="sub">Clasifica los movimientos, une cada cargo con su factura y te pregunta solo lo que no sabe (una vez).</p>
+      <button id="r-go">Cuadrar banco</button>
+      <div id="m-r"></div>
+      <div id="q-list"></div>
+    </div>
+    <div class="card">
+      <h2>Subir factura</h2>
+      <p class="sub">PDF o foto de una factura, albarán o ticket. Un mismo archivo solo se lee una vez.</p>
+      <label for="d-file">Documento</label>
+      <input id="d-file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
+      <button id="d-go">Subir factura</button>
+      <div id="m-d"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+// Datos públicos del proyecto (la clave publicable está hecha para ir en la página; los permisos los pone la base de datos)
+const SUPABASE_URL = "https://wxlhhsglmobhgalksfpa.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_rglWawrLOPlcQcVqszGoJw_lztdsB1o";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const eur = (c) => c == null ? "—" : (c / 100).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
+const show = (el, kind, html) => { el.innerHTML = `<div class="msg ${kind}">${html}</div>`; };
+const views = ["v-login", "v-alta", "v-main"];
+const view = (id) => views.forEach((v) => $(v).classList.toggle("hidden", v !== id));
+let ctx = { company: null, center: null };
+let pendingEmail = "";
+
+// ---------- entrar ----------
+$("f-email").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  pendingEmail = $("email").value.trim();
+  const { error } = await sb.auth.signInWithOtp({ email: pendingEmail, options: { shouldCreateUser: false } });
+  btn.disabled = false;
+  if (error) return show($("m-login"), "bad", /signups? not allowed|not found/i.test(error.message) ? "Ese email no tiene acceso. Pide una invitación al propietario." : esc(error.message));
+  $("f-email").classList.add("hidden"); $("f-code").classList.remove("hidden");
+  show($("m-login"), "info", `Te he enviado un correo a <b>${esc(pendingEmail)}</b> (de Supabase; mira también en spam). Copia su enlace y pégalo aquí.`);
+  $("code").focus();
+});
+$("f-code").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  const raw = $("code").value.trim();
+  let result;
+  if (/^\d{6}$/.test(raw)) {
+    result = await sb.auth.verifyOtp({ email: pendingEmail, token: raw, type: "email" });
+  } else {
+    // Enlace del correo: lleva el código cifrado (token) y el tipo; se canjea aquí sin abrir el enlace
+    let u = null; try { u = new URL(raw); } catch { /* no es un enlace */ }
+    const tokenHash = u?.searchParams.get("token");
+    if (!tokenHash || !u.hostname.endsWith(".supabase.co")) { btn.disabled = false; return show($("m-login"), "bad", "Pega el enlace completo del correo (empieza por https://…supabase.co)."); }
+    const type = u.searchParams.get("type") === "signup" ? "signup" : "email";
+    result = await sb.auth.verifyOtp({ token_hash: tokenHash, type });
+  }
+  btn.disabled = false;
+  if (result.error) return show($("m-login"), "bad", "El enlace o el código no vale o ha caducado (dura poco y solo sirve una vez). Pide otro.");
+  $("m-login").innerHTML = "";
+  await route();
+});
+$("other-email").addEventListener("click", () => {
+  $("f-code").classList.add("hidden"); $("f-email").classList.remove("hidden"); $("m-login").innerHTML = "";
+});
+$("logout").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
+
+// ---------- ¿qué toca enseñar? ----------
+async function route() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { $("logout").classList.add("hidden"); return view("v-login"); }
+  $("logout").classList.remove("hidden");
+  const { data: companies, error } = await sb.from("companies").select("id, name, nif").order("created_at");
+  if (error) { view("v-login"); return show($("m-login"), "bad", esc(error.message)); }
+  if (!companies.length) { $("who").textContent = session.user.email; return view("v-alta"); }
+  ctx.company = companies[0];
+  const { data: centers } = await sb.from("centers").select("id, name").eq("company_id", ctx.company.id).eq("active", true).order("created_at");
+  ctx.center = centers?.[0] ?? null;
+  $("who").textContent = `${ctx.company.name} · ${ctx.company.nif}${ctx.center ? " · " + ctx.center.name : ""}`;
+  view("v-main");
+  loadQuestions();
+}
+
+// ---------- alta de empresa ----------
+$("f-alta").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  const { error } = await sb.rpc("create_company_with_owner", {
+    p_company_name: $("c-name").value, p_nif: $("c-nif").value, p_legal_form: $("c-form").value,
+    p_start_date: $("c-start").value, p_center_name: $("n-name").value, p_center_address: $("n-addr").value,
+  });
+  btn.disabled = false;
+  if (error) return show($("m-alta"), "bad", esc(error.message));
+  await route();
+});
+
+// ---------- llamadas a las funciones del servidor ----------
+async function callFunction(name, form) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { await route(); throw new Error("La sesión ha caducado: vuelve a entrar"); }
+  const isForm = form instanceof FormData;
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_PUBLISHABLE_KEY, ...(isForm ? {} : { "content-type": "application/json" }) },
+    body: isForm ? form : JSON.stringify(form),
+  });
+  let body = {};
+  try { body = await res.json(); } catch { /* respuesta vacía */ }
+  return { ok: res.ok, status: res.status, body };
+}
+const errHtml = (b, status) => `${esc(b.error ?? "Error " + status)}${b.detalle ? `<br><span class="hint">${esc(b.detalle)}</span>` : ""}`;
+
+// ---------- extracto ----------
+$("x-go").addEventListener("click", async (e) => {
+  const file = $("x-file").files[0];
+  if (!file) return show($("m-x"), "bad", "Elige el archivo del extracto");
+  e.target.disabled = true; show($("m-x"), "info", "Comprobando el extracto…");
+  const form = new FormData();
+  form.append("file", file); form.append("company_id", ctx.company.id);
+  if (ctx.center) form.append("center_id", ctx.center.id);
+  form.append("alta_cuentas", $("x-alta").value.replace(/\s/g, ""));
+  try {
+    const { ok, status, body } = await callFunction("import-n43", form);
+    if (!ok) return show($("m-x"), "bad", errHtml(body, status));
+    const parts = (body.cuentas ?? []).map((c) => {
+      const st = c.status === "importado"
+        ? `<dl><dt>Cuenta</dt><dd>****${esc(c.last4 ?? "")}</dd><dt>Periodo</dt><dd>${esc(c.periodo)}</dd>
+           <dt>Saldo inicial</dt><dd>${eur(c.saldo_inicial_cents)}</dd><dt>Saldo final</dt><dd>${eur(c.saldo_final_cents)}</dd>
+           <dt>Movimientos nuevos</dt><dd>${esc(c.nuevos ?? 0)}</dd><dt>Ya estaban</dt><dd>${esc(c.ya_estaban ?? 0)}</dd></dl>`
+        : `<p><b>${esc(c.status)}</b> · ${esc(c.periodo)}</p>`;
+      const av = (c.avisos ?? []).length ? `<ul class="f">${c.avisos.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : "";
+      return st + av + (c.status === "cuenta_desconocida" ? `<p class="hint">Esta cuenta no está dada de alta. Si es de este negocio, pon sus cuatro últimas cifras arriba y vuelve a subirlo.</p>` : "");
+    }).join("<hr>");
+    const cont = body.continuidad_en_el_archivo && !body.continuidad_en_el_archivo.ok
+      ? `<ul class="f">${body.continuidad_en_el_archivo.problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : "";
+    const allOk = (body.cuentas ?? []).every((c) => c.status === "importado");
+    $("m-x").innerHTML = `<div class="msg ${allOk ? "ok" : "info"}">${allOk ? "Extracto comprobado y guardado." : "Extracto comprobado; alguna cuenta no se ha importado:"}</div>${parts}${cont}`;
+  } catch (err) { show($("m-x"), "bad", esc(err.message)); }
+  finally { e.target.disabled = false; }
+});
+
+// ---------- factura ----------
+// Las fotos de móvil se reducen antes de enviarlas (el lector admite hasta 5 MB y no necesita más resolución)
+async function shrinkImage(file) {
+  if (!file.type.startsWith("image/") || file.size <= 4_500_000) return file;
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, 2400 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+  return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+}
+const STATUS = { correcta: "Cuadra", con_dudas: "Cuadra, con dudas", erronea: "No cuadra", no_es_compra: "No es una compra" };
+function findings(title, list) {
+  return list?.length ? `<p><b>${title}</b></p><ul class="f">${list.map((f) => `<li>${esc(f.message)}</li>`).join("")}</ul>` : "";
+}
+$("d-go").addEventListener("click", async (e) => {
+  const raw = $("d-file").files[0];
+  if (!raw) return show($("m-d"), "bad", "Elige el PDF o la foto");
+  e.target.disabled = true; show($("m-d"), "info", "Leyendo el documento… (puede tardar hasta un minuto)");
+  try {
+    const file = await shrinkImage(raw);
+    const form = new FormData();
+    form.append("file", file); form.append("company_id", ctx.company.id);
+    if (ctx.center) form.append("center_id", ctx.center.id);
+    const { ok, status, body } = await callFunction("read-document", form);
+    if (!ok) return show($("m-d"), "bad", errHtml(body, status));
+    if (body.ya_leido) {
+      const ch = body.lectura?.checks ?? {};
+      return $("m-d").innerHTML = `<div class="msg info">Este archivo ya estaba leído (versión ${esc(body.lectura?.version)}): no se ha vuelto a pagar la lectura.</div>
+        <p><span class="pill ${esc(ch.status)}">${esc(STATUS[ch.status] ?? ch.status)}</span> ${esc(ch.emisor ?? "")}</p>
+        ${findings("No cuadra", ch.errors)}${findings("Avisos", ch.warnings)}${findings("Preguntas", ch.questions)}`;
+    }
+    const r = body.lectura, ch = body.comprobaciones, g = body.guardado ?? {};
+    const taxes = (r.taxes ?? []).map((t) => `<tr><td>${esc({ iva: "IVA", recargo: "Recargo", retencion: "Retención" }[t.kind])} ${esc(t.rate)} %</td><td class="n">${eur(t.baseCents)}</td><td class="n">${eur(t.amountCents)}</td></tr>`).join("");
+    const lines = (r.lines ?? []).map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.text)}</td><td class="n">${esc(l.qty ?? "")} ${esc(l.unit ?? "")}</td><td class="n">${esc(l.unitPrice ?? "")}</td><td class="n">${eur(l.amountCents)}</td></tr>`).join("");
+    $("m-d").innerHTML = `
+      <p><span class="pill ${esc(ch.status)}">${esc(STATUS[ch.status] ?? ch.status)}</span></p>
+      <dl>
+        <dt>Proveedor</dt><dd>${esc(r.issuerName ?? "—")} · ${esc(r.issuerNif ?? "sin NIF")} <span class="hint">(${esc({ conocido: "ya conocido", nuevo: "nuevo", sin_nif: "sin NIF" }[g.proveedor] ?? "")})</span></dd>
+        <dt>Tipo</dt><dd>${esc(r.docType)}</dd><dt>Número</dt><dd>${esc(r.number ?? "—")}</dd><dt>Fecha</dt><dd>${esc(r.issueDate ?? "—")}</dd>
+        <dt>Total</dt><dd><b>${eur(r.totalCents)}</b></dd><dt>Líneas</dt><dd>${(r.lines ?? []).length}</dd>
+      </dl>
+      ${g.duplicado_de ? `<div class="msg bad">Esta factura (mismo NIF y número) ya estaba subida en otro archivo.</div>` : ""}
+      ${findings("No cuadra", ch.errors)}${findings("Avisos", ch.warnings)}${findings("Preguntas", ch.questions)}
+      ${ch.ilegible ? `<p class="hint">No se lee bien: ${esc(ch.ilegible)}</p>` : ""}
+      ${taxes ? `<table><thead><tr><th>Impuesto</th><th class="n">Base</th><th class="n">Cuota</th></tr></thead><tbody>${taxes}</tbody></table>` : ""}
+      ${lines ? `<table><thead><tr><th>#</th><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Importe</th></tr></thead><tbody>${lines}</tbody></table>` : ""}`;
+  } catch (err) { show($("m-d"), "bad", esc(err.message)); }
+  finally { e.target.disabled = false; }
+});
+
+// ---------- cuadre del banco ----------
+const KIND = { compra_tarjeta: "Compras con tarjeta", recibo: "Recibos", transferencia_enviada: "Transferencias enviadas", transferencia_recibida: "Transferencias recibidas",
+  cobro_tpv: "Cobros del datáfono", comision_tpv: "Comisiones del datáfono", bonificacion: "Bonificaciones", nomina: "Nóminas", seguridad_social: "Seguridad Social",
+  impuesto: "Impuestos", traspaso_interno: "Traspasos internos", comision_banco: "Comisiones del banco", prestamo: "Préstamos", cajero: "Cajero", devolucion: "Devoluciones", otro: "Sin clasificar" };
+const CATS = ["pescado", "marisco", "carne", "fruta_verdura", "bebidas", "supermercado", "menaje", "limpieza", "transporte", "alquiler", "suministros", "servicios_profesionales", "marketing", "personal", "impuestos", "otros"];
+async function runReconcile() {
+  show($("m-r"), "info", "Cuadrando…");
+  try {
+    const { ok, status, body } = await callFunction("reconcile", { company_id: ctx.company.id });
+    if (!ok) return show($("m-r"), "bad", errHtml(body, status));
+    const sc = body.suma_de_control;
+    const kinds = Object.entries(body.por_tipo).map(([k, n]) => `<tr><td>${esc(KIND[k] ?? k)}</td><td class="n">${n}</td></tr>`).join("");
+    const av = (body.avisos ?? []).length ? `<p><b>Avisos</b></p><ul class="f">${body.avisos.map((a) => `<li>${esc(a.message)}</li>`).join("")}</ul>` : "";
+    $("m-r").innerHTML = `<div class="msg ${sc.cuadra ? "ok" : "bad"}">${body.movimientos} movimientos · cargos ${eur(-sc.cargos_cents)} · clasificados ${eur(-sc.cargos_clasificados_cents)} ${sc.cuadra ? "✓ cuadra" : "✗ falta clasificar"}</div>
+      <dl><dt>Gastos nuevos desde facturas</dt><dd>${esc(body.gastos_desde_facturas?.nuevos ?? 0)}</dd><dt>Cargos unidos a su factura</dt><dd>${esc(body.emparejados_seguros)}</dd>
+      <dt>Para confirmar</dt><dd>${esc(body.para_confirmar)}</dd><dt>Cargos sin factura (detectados)</dt><dd>${esc(body.detectados)}</dd></dl>
+      <table><tbody>${kinds}</tbody></table>${av}`;
+  } catch (err) { show($("m-r"), "bad", esc(err.message)); }
+  await loadQuestions();
+}
+async function loadQuestions() {
+  const { data, error } = await sb.from("pending_questions").select("id, question, source_ref").eq("company_id", ctx.company.id).eq("status", "abierta").order("created_at");
+  if (error) return show($("q-list"), "bad", esc(error.message));
+  if (!data.length) { $("q-list").innerHTML = `<p class="hint">No hay preguntas pendientes.</p>`; return; }
+  $("q-list").innerHTML = `<h2 style="margin-top:20px">Preguntas (${data.length})</h2>` + data.map((q) => {
+    const t = q.source_ref?.type; const id = esc(q.id);
+    let form = "";
+    if (t === "tarjeta") form = `<button data-a='{"own":true}'>Sí, es del negocio</button> <button class="sec" data-a='{"own":false}'>No</button>`;
+    else if (t === "emparejar") form = `<button data-a='{"accept":true}'>Sí</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
+    else form = `<div class="row"><div><label>¿Quién es?</label><input name="legal_name" value="${esc(q.source_ref?.name ?? "")}"></div>
+        <div><label>NIF <span class="hint">(si lo sabes)</span></label><input name="nif" value="${esc(q.source_ref?.nif ?? "")}"></div></div>
+        <label>¿Qué es?</label><select name="category"><option value="">—</option>${CATS.map((c) => `<option>${c}</option>`).join("")}</select>
+        <label style="font-weight:400"><input type="checkbox" name="internal" style="width:auto" ${q.source_ref?.suggest_internal ? "checked" : ""}> Es un traspaso entre cuentas de la empresa</label>
+        <button data-a="form">Guardar</button>`;
+    return `<div class="card" data-q="${id}" style="margin:10px 0"><p>${esc(q.question)}</p>${form}
+      <button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button><div class="ans"></div></div>`;
+  }).join("");
+}
+$("r-go").addEventListener("click", async (e) => { e.target.disabled = true; try { await runReconcile(); } finally { e.target.disabled = false; } });
+$("q-list").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-a]"); if (!b) return;
+  const box = b.closest("[data-q]");
+  let answer;
+  if (b.dataset.a === "form") {
+    const v = (n) => box.querySelector(`[name=${n}]`);
+    answer = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: v("category").value, internal: v("internal").checked || undefined };
+    if (answer.internal) answer.kind = "traspaso_interno";
+  } else answer = JSON.parse(b.dataset.a);
+  b.disabled = true;
+  const { error } = await sb.rpc("answer_question", { p_question: box.dataset.q, p_answer: answer });
+  if (error) { b.disabled = false; return show(box.querySelector(".ans"), "bad", esc(error.message)); }
+  box.remove();
+  await runReconcile(); // la respuesta queda como regla y se vuelve a cuadrar
+});
+
+sb.auth.onAuthStateChange((event) => { if (event === "SIGNED_OUT") view("v-login"); });
+route();
+</script>
+</body>
+</html>
