@@ -363,7 +363,7 @@ async function runReconcile() {
     const li = (a) => `<li>${esc(a.message)}</li>`;
     const av = list.length ? `<p><b>Avisos (${list.length})</b></p><ul class="f">${list.slice(0, 5).map(li).join("")}</ul>`
       + (list.length > 5 ? `<details><summary>y ${list.length - 5} más</summary><ul class="f">${list.slice(5).map(li).join("")}</ul></details>` : "") : "";
-    $("m-r").innerHTML = `<div class="msg ${sc.cuadra ? "ok" : "bad"}">${body.movimientos} movimientos · cargos ${eur(-sc.cargos_cents)} · clasificados ${eur(-sc.cargos_clasificados_cents)} ${sc.cuadra ? "✓ cuadra" : "✗ falta clasificar"}</div>
+    $("m-r").innerHTML = `<div class="msg ${sc.cuadra ? "ok" : "bad"}">${body.movimientos} movimientos · cargos ${eur(-sc.cargos_cents)} · clasificados ${eur(-sc.cargos_clasificados_cents)} ${sc.cuadra ? "✓ todo clasificado" : "✗ falta clasificar"}</div>
       <dl><dt>Gastos nuevos desde facturas</dt><dd>${esc(body.gastos_desde_facturas?.nuevos ?? 0)}</dd><dt>Cargos unidos a su factura</dt><dd>${esc(body.emparejados_seguros)}</dd>
       <dt>Para confirmar</dt><dd>${esc(body.para_confirmar)}</dd><dt>Cargos sin factura (detectados)</dt><dd>${esc(body.detectados)}</dd></dl>
       <table><tbody>${kinds}</tbody></table>${av}`;
