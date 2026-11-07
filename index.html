@@ -127,6 +127,13 @@
       <div id="q-list"></div>
     </div>
     <div class="card">
+      <h2>Recogida automática</h2>
+      <p class="sub">Un programa en tu Google mira la carpeta de Drive «AUTOPILA – entrada» y manda aquí lo que encuentre (facturas, albaranes, tickets y extractos del banco). La carpeta es solo de este negocio: lo que dejes ahí cuenta como suyo. Para conectarlo hace falta una clave.</p>
+      <div id="ing-status" class="hint"></div>
+      <button id="ing-go" class="sec">Activar recogida</button>
+      <div id="ing-out"></div>
+    </div>
+    <div class="card">
       <h2>Proveedores</h2>
       <p class="sub">Corrige nombre, NIF y qué es. Si cambias qué es, las reglas de ese proveedor se rehacen solas.</p>
       <button id="p-go" class="sec">Ver proveedores</button>
@@ -235,6 +242,7 @@ async function route() {
   let passOk = false; try { passOk = localStorage.getItem("autopila_pass_ok") === "1"; } catch { /* sin almacenamiento */ }
   $("v-setpass").classList.toggle("hidden", passOk || session.user.app_metadata?.providers?.includes("email") && session.user.user_metadata?.password_set);
   loadQuestions();
+  loadIngestStatus();
 }
 
 // ---------- alta de empresa ----------
@@ -415,6 +423,33 @@ async function loadQuestions() {
       ${skip}<div class="ans"></div></div>`;
   }).join("");
 }
+
+// ---------- recogida automática ----------
+async function loadIngestStatus() {
+  const { data } = await sb.rpc("ingest_channel_status", { p_company: ctx.company.id, p_center: ctx.center?.id ?? null });
+  $("ing-status").textContent = data?.activa ? `Activa desde el ${new Date(data.desde).toLocaleDateString("es-ES")}.` : "Todavía no está activada.";
+}
+let ingArmed = false;
+$("ing-go").addEventListener("click", async (e) => {
+  // Dos pasos: el primer clic avisa; el segundo crea la clave (la anterior deja de valer)
+  if (!ingArmed) {
+    ingArmed = true; e.target.textContent = "Sí, crear la clave";
+    return show($("ing-out"), "info", "Se creará una clave nueva y la anterior, si había, dejará de valer. Se enseña <b>una sola vez</b>: tenla lista para pegarla en el programa de Google. Pulsa otra vez para seguir.");
+  }
+  e.target.disabled = true;
+  const { data, error } = await sb.rpc("create_ingest_channel", { p_company: ctx.company.id, p_center: ctx.center?.id ?? null });
+  e.target.disabled = false; ingArmed = false; e.target.textContent = "Activar recogida";
+  if (error) return show($("ing-out"), "bad", esc(error.message));
+  $("ing-out").innerHTML = `<div class="msg ok">Clave creada. Cópiala ahora: no se volverá a mostrar.</div>
+    <input id="ing-key" readonly value="${esc(data)}" style="font-family:monospace">
+    <button id="ing-copy">Copiar clave</button>
+    <p class="hint">Pégala en el programa de Google donde te indique. No la mandes por correo ni la pegues en chats.</p>`;
+  $("ing-copy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("ing-key").value); $("ing-copy").textContent = "Copiada ✓"; }
+    catch { $("ing-key").select(); }
+  });
+  loadIngestStatus();
+});
 
 // ---------- proveedores ----------
 async function loadContacts() {
