@@ -393,6 +393,9 @@ async function loadQuestions() {
   // Cargos que proponen las preguntas de «unir factura»
   const expIds = [...new Set(data.filter((q) => q.source_ref?.type === "unir_factura").flatMap((q) => q.source_ref.expense_ids ?? []))];
   const expOf = new Map();
+  // Proveedores sin NIF (dados de alta desde el banco): una factura nueva puede ser de uno de ellos
+  const noNif = data.some((q) => q.source_ref?.type === "proveedor_nuevo")
+    ? ((await sb.from("contacts").select("id, legal_name").eq("company_id", ctx.company.id).is("nif", null).order("legal_name")).data ?? []) : [];
   if (expIds.length) {
     const { data: ex } = await sb.from("expenses").select("id, expense_date, net_payable_cents").in("id", expIds);
     for (const x of ex ?? []) expOf.set(x.id, x);
@@ -411,6 +414,14 @@ async function loadQuestions() {
         + `<button data-a="unir">Unir a los marcados</button> <button class="sec" data-a="nounir">Ninguno de estos</button>`;
     }
     else if (t === "emparejar") form = `<button data-a='{"accept":true}'>Sí</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
+    else if (t === "remitente") form = `<button data-a='{"accept":true}'>Sí, es proveedor</button> <button class="sec" data-a='{"accept":false}'>No (no leer nunca)</button>`;
+    else if (t === "direccion_proveedor") form = `<button data-a='{"accept":true}'>Sí, añádela</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
+    else if (t === "aviso_sin_adjunto") form = `<button data-a='{"accept":true}'>Visto</button>`;
+    else if (t === "proveedor_nuevo") form = `<div class="row"><div><label>Nombre</label><input name="legal_name" value="${esc(q.source_ref?.name ?? "")}"></div>
+        <div><label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((c) => `<option>${esc(c)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
+        <input name="category_new" class="hidden" placeholder="Escribe qué es"></div></div>
+        ${noNif.length ? `<label>¿Es uno que ya tienes? <span class="hint">(dados de alta desde el banco, sin NIF)</span></label><select name="contact_id"><option value="">No, es nuevo</option>${noNif.map((c) => `<option value="${esc(c.id)}">${esc(c.legal_name)}</option>`).join("")}</select>` : ""}
+        <button data-a="prov">Sí, es proveedor</button> <button class="sec" data-a='{"accept":false}'>No (rechazar sus facturas)</button>`;
     else form = `<div class="row"><div><label>¿Quién es?</label><input name="legal_name" value="${esc(q.source_ref?.name ?? "")}"></div>
         <div><label>NIF <span class="hint">(si lo sabes)</span></label><input name="nif" value="${esc(q.source_ref?.nif ?? "")}"></div></div>
         <label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((c) => `<option>${esc(c)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
@@ -418,7 +429,8 @@ async function loadQuestions() {
         <label style="font-weight:400"><input type="checkbox" name="internal" style="width:auto" ${q.source_ref?.suggest_internal ? "checked" : ""}> Es un traspaso entre cuentas de la empresa</label>
         <button data-a="form">Guardar</button>`;
     // «Unir factura» no se puede saltar: saltarla dejaría la compra contada dos veces
-    const skip = t === "unir_factura" ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
+    // Tampoco «remitente» ni «proveedor nuevo»: hasta contestar, no se lee o no se cuenta
+    const skip = ["unir_factura", "remitente", "proveedor_nuevo", "aviso_sin_adjunto"].includes(t) ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
     return `<div class="card" data-q="${id}" style="margin:10px 0"><p>${esc(q.question)}</p>${form}
       ${skip}<div class="ans"></div></div>`;
   }).join("");
@@ -452,15 +464,25 @@ $("ing-go").addEventListener("click", async (e) => {
 });
 
 // ---------- proveedores ----------
+const PAY = { desconocido: "No se sabe todavía", domiciliacion: "Recibo domiciliado", transferencia: "Transferencia", tarjeta: "Tarjeta",
+  efectivo_caja: "Efectivo", pagado_por_socio: "Lo paga un socio", compensacion: "Compensación" };
 async function loadContacts() {
   await loadMyCats();
-  const { data, error } = await sb.from("contacts").select("id, legal_name, nif, category").eq("company_id", ctx.company.id).order("legal_name");
+  const { data, error } = await sb.from("contacts").select("id, legal_name, trade_name, nif, category, bank_names, default_payment_method, payment_method_by_user").eq("company_id", ctx.company.id).order("legal_name");
   if (error) return show($("p-list"), "bad", esc(error.message));
   if (!data.length) { $("p-list").innerHTML = `<p class="hint">Aún no hay proveedores.</p>`; return; }
-  $("p-list").innerHTML = data.map((c) => `<details class="card" data-c="${esc(c.id)}" style="margin:8px 0">
+  const { data: em } = await sb.from("contact_emails").select("contact_id, email").eq("company_id", ctx.company.id).is("removed_at", null);
+  const mails = new Map();
+  for (const x of em ?? []) mails.set(x.contact_id, [...(mails.get(x.contact_id) ?? []), x.email]);
+  $("p-list").innerHTML = data.map((c) => `<details class="card" data-c="${esc(c.id)}" data-pay="${esc(c.default_payment_method)}" style="margin:8px 0">
     <summary><b>${esc(c.legal_name)}</b> <span class="hint">· ${esc(c.nif ?? "sin NIF")} · ${esc(c.category ?? "sin categoría")}</span></summary>
-    <div class="row"><div><label>Nombre</label><input name="legal_name" value="${esc(c.legal_name)}"></div>
+    <div class="row"><div><label>Nombre fiscal</label><input name="legal_name" value="${esc(c.legal_name)}"></div>
       <div><label>NIF</label><input name="nif" value="${esc(c.nif ?? "")}"></div></div>
+    <div class="row"><div><label>Nombre comercial</label><input name="trade_name" value="${esc(c.trade_name ?? "")}"></div>
+      <div><label>Cómo sale en el banco <span class="hint">(separados por comas)</span></label><input name="bank_names" value="${esc((c.bank_names ?? []).join(", "))}"></div></div>
+    <label>Correos desde los que manda facturas <span class="hint">(separados por comas)</span></label><input name="emails" value="${esc((mails.get(c.id) ?? []).join(", "))}">
+    <label>Forma de pago habitual <span class="hint">${c.payment_method_by_user ? "(puesta por ti)" : "(la deduce la app de cómo se le paga)"}</span></label>
+    <select name="pay">${Object.entries(PAY).map(([k, n]) => `<option value="${k}" ${k === c.default_payment_method ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
     <label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((k) => `<option ${k === c.category ? "selected" : ""}>${esc(k)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
     <input name="category_new" class="hidden" placeholder="Escribe qué es">
     <button data-save>Guardar cambios</button><div class="ans"></div></details>`).join("");
@@ -477,7 +499,11 @@ $("p-list").addEventListener("click", async (e) => {
   const box = b.closest("[data-c]"); const v = (n) => box.querySelector(`[name=${n}]`);
   const cat = v("category").value === "__otra" ? v("category_new").value.trim().toLowerCase() : v("category").value;
   if (v("category").value === "__otra" && !cat) return show(box.querySelector(".ans"), "bad", "Escribe qué es");
-  const patch = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: cat };
+  const list = (n) => v(n).value.split(",").map((x) => x.trim()).filter(Boolean);
+  const c0 = box.dataset;
+  const patch = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: cat,
+    trade_name: v("trade_name").value.trim(), bank_names: list("bank_names"), emails: list("emails") };
+  if (v("pay").value !== c0.pay) patch.default_payment_method = v("pay").value;  // solo si la cambias tú
   b.disabled = true;
   const { data, error } = await sb.rpc("update_contact", { p_contact: box.dataset.c, p_patch: patch });
   b.disabled = false;
@@ -503,6 +529,12 @@ $("q-list").addEventListener("click", async (e) => {
     if (v("category").value === "__otra" && !cat) return show(box.querySelector(".ans"), "bad", "Escribe qué es");
     answer = { legal_name: v("legal_name").value.trim(), nif: v("nif").value.trim(), category: cat, internal: v("internal").checked || undefined };
     if (answer.internal) answer.kind = "traspaso_interno";
+  } else if (b.dataset.a === "prov") {
+    const v = (n) => box.querySelector(`[name=${n}]`);
+    const cat = v("category").value === "__otra" ? v("category_new").value.trim().toLowerCase() : v("category").value;
+    if (v("category").value === "__otra" && !cat) return show(box.querySelector(".ans"), "bad", "Escribe qué es");
+    answer = { accept: true, legal_name: v("legal_name").value.trim(), category: cat, contact_id: v("contact_id")?.value || undefined };
+    if (!answer.contact_id && !answer.legal_name) return show(box.querySelector(".ans"), "bad", "Escribe el nombre del proveedor");
   } else if (b.dataset.a === "unir" || b.dataset.a === "nounir") {
     if (b.dataset.a === "unir") {
       const ids = [...box.querySelectorAll("[name=exp]:checked")].map((c) => c.value);
