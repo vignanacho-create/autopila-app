@@ -147,6 +147,21 @@
       <button id="d-go">Subir factura</button>
       <div id="m-d"></div>
     </div>
+    <div class="card">
+      <h2>Documentos</h2>
+      <p class="sub">Lo último que ha entrado. Si algo se subió por error, márcalo: deja de contar en todo, pero no se borra (queda quién y por qué). Se puede volver a activar.</p>
+      <button id="doc-go" class="sec">Ver documentos</button>
+      <div id="doc-list"></div>
+    </div>
+    <div class="card">
+      <h2>Fecha de arranque</h2>
+      <p class="sub">Desde qué día lleva la app las cuentas. Lo anterior se guarda, pero no cuenta ni avisa; un cargo de después que paga algo de antes se pregunta una vez.</p>
+      <div id="bf-now" class="hint"></div>
+      <label for="bf-date">Fecha</label><input id="bf-date" type="date">
+      <label for="bf-why">Motivo</label><input id="bf-why" placeholder="p. ej. empezamos a usar la app en octubre">
+      <button id="bf-go" class="sec">Guardar fecha de arranque</button>
+      <div id="m-bf"></div>
+    </div>
   </section>
 </main>
 
@@ -230,7 +245,7 @@ async function route() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { $("logout").classList.add("hidden"); return view("v-login"); }
   $("logout").classList.remove("hidden");
-  const { data: companies, error } = await sb.from("companies").select("id, name, nif").order("created_at");
+  const { data: companies, error } = await sb.from("companies").select("id, name, nif, books_from").order("created_at");
   if (error) { view("v-login"); return show($("m-login"), "bad", esc(error.message)); }
   if (!companies.length) { $("who").textContent = session.user.email; return view("v-alta"); }
   ctx.company = companies[0];
@@ -243,6 +258,7 @@ async function route() {
   $("v-setpass").classList.toggle("hidden", passOk || session.user.app_metadata?.providers?.includes("email") && session.user.user_metadata?.password_set);
   loadQuestions();
   loadIngestStatus();
+  showBooksFrom();
 }
 
 // ---------- alta de empresa ----------
@@ -286,6 +302,18 @@ $("x-go").addEventListener("click", async (e) => {
   try {
     const { ok, status, body } = await callFunction("import-n43", form);
     if (!ok) return show($("m-x"), "bad", errHtml(body, status));
+    // Extracto de la tarjeta de crédito
+    if (body.tarjeta) {
+      const t = body.tarjeta;
+      const tl = (xs) => (xs ?? []).map((x) => `****${esc(x)}`).join(", ") || "—";
+      const avt = (t.avisos ?? []).length ? `<ul class="f">${t.avisos.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : "";
+      $("m-x").innerHTML = `<div class="msg ok">Extracto de la tarjeta comprobado y guardado.</div>
+        <dl><dt>Contrato</dt><dd>****${esc(t.last4 ?? "")}</dd><dt>Periodo</dt><dd>${esc(t.periodo_desde)} a ${esc(t.periodo_hasta)}</dd><dt>Se carga el</dt><dd>${esc(t.dia_de_cargo)}</dd>
+        <dt>Total</dt><dd>${eur(-t.total_cents)}</dd><dt>Compras nuevas</dt><dd>${esc(t.nuevos ?? 0)}</dd><dt>Ya estaban</dt><dd>${esc(t.ya_estaban ?? 0)}</dd>
+        <dt>Del negocio</dt><dd>${tl(t.tarjetas_del_negocio)}</dd><dt>No son del negocio</dt><dd>${tl(t.tarjetas_fuera)}</dd>
+        <dt>Sin dar de alta</dt><dd>${tl(t.tarjetas_sin_alta)}</dd></dl>${avt}`;
+      return;
+    }
     const parts = (body.cuentas ?? []).map((c) => {
       const st = c.status === "importado"
         ? `<dl><dt>Cuenta</dt><dd>****${esc(c.last4 ?? "")}</dd><dt>Periodo</dt><dd>${esc(c.periodo)}</dd>
@@ -358,7 +386,8 @@ $("d-go").addEventListener("click", async (e) => {
 // ---------- cuadre del banco ----------
 const KIND = { compra_tarjeta: "Compras con tarjeta", recibo: "Recibos", transferencia_enviada: "Transferencias enviadas", transferencia_recibida: "Transferencias recibidas",
   cobro_tpv: "Cobros del datáfono", comision_tpv: "Comisiones del datáfono", bonificacion: "Bonificaciones", nomina: "Nóminas", seguridad_social: "Seguridad Social",
-  impuesto: "Impuestos", traspaso_interno: "Traspasos internos", comision_banco: "Comisiones del banco", prestamo: "Préstamos", cajero: "Cajero", devolucion: "Devoluciones", otro: "Sin clasificar" };
+  impuesto: "Impuestos", traspaso_interno: "Traspasos internos", comision_banco: "Comisiones del banco", prestamo: "Préstamos", cajero: "Cajero", devolucion: "Devoluciones", otro: "Sin clasificar",
+  liquidacion_tarjeta: "Cargo de la tarjeta de crédito" };
 const CATS = ["pescado", "marisco", "carne", "fruta_verdura", "bebidas", "supermercado", "menaje", "limpieza", "transporte", "alquiler", "suministros", "servicios_profesionales", "marketing", "personal", "impuestos", "otros"];
 async function runReconcile() {
   show($("m-r"), "info", "Cuadrando…");
@@ -417,6 +446,7 @@ async function loadQuestions() {
     else if (t === "remitente") form = `<button data-a='{"accept":true}'>Sí, es proveedor</button> <button class="sec" data-a='{"accept":false}'>No (no leer nunca)</button>`;
     else if (t === "direccion_proveedor") form = `<button data-a='{"accept":true}'>Sí, añádela</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
     else if (t === "aviso_sin_adjunto") form = `<button data-a='{"accept":true}'>Visto</button>`;
+    else if (t === "antes_arranque") form = `<button data-a="antes_si">Sí, es de antes</button> <button class="sec" data-a="antes_no">No</button>`;
     else if (t === "proveedor_nuevo") form = `<div class="row"><div><label>Nombre</label><input name="legal_name" value="${esc(q.source_ref?.name ?? "")}"></div>
         <div><label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((c) => `<option>${esc(c)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
         <input name="category_new" class="hidden" placeholder="Escribe qué es"></div></div>
@@ -430,7 +460,7 @@ async function loadQuestions() {
         <button data-a="form">Guardar</button>`;
     // «Unir factura» no se puede saltar: saltarla dejaría la compra contada dos veces
     // Tampoco «remitente» ni «proveedor nuevo»: hasta contestar, no se lee o no se cuenta
-    const skip = ["unir_factura", "remitente", "proveedor_nuevo", "aviso_sin_adjunto"].includes(t) ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
+    const skip = ["unir_factura", "remitente", "proveedor_nuevo", "aviso_sin_adjunto", "antes_arranque"].includes(t) ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
     return `<div class="card" data-q="${id}" style="margin:10px 0"><p>${esc(q.question)}</p>${form}
       ${skip}<div class="ans"></div></div>`;
   }).join("");
@@ -541,12 +571,65 @@ $("q-list").addEventListener("click", async (e) => {
       if (!ids.length) return show(box.querySelector(".ans"), "bad", "Marca al menos un cargo");
       answer = { accept: true, expense_ids: ids };
     } else answer = { accept: false };
+  } else if (b.dataset.a === "antes_si" || b.dataset.a === "antes_no") {
+    // Fecha de arranque: respuesta propia (no crea regla)
+    b.disabled = true;
+    const r = await sb.rpc("answer_before_start", { p_question: box.dataset.q, p_yes: b.dataset.a === "antes_si" });
+    if (r.error) { b.disabled = false; return show(box.querySelector(".ans"), "bad", esc(r.error.message)); }
+    box.remove(); return;
   } else answer = JSON.parse(b.dataset.a);
   b.disabled = true;
   const { error } = await sb.rpc("answer_question", { p_question: box.dataset.q, p_answer: answer });
   if (error) { b.disabled = false; return show(box.querySelector(".ans"), "bad", esc(error.message)); }
   box.remove();
   await runReconcile(); // la respuesta queda como regla y se vuelve a cuadrar
+});
+
+// ---------- documentos: subido por error ----------
+const DOC_TYPE = { factura: "Factura", simplificada: "Factura simplificada", albaran: "Albarán", abono: "Abono", rectificativa: "Rectificativa", ticket: "Ticket", extracto: "Extracto" };
+async function loadDocuments() {
+  const { data, error } = await sb.rpc("list_documents", { p_company: ctx.company.id, p_limit: 100 });
+  if (error) return show($("doc-list"), "bad", esc(error.message));
+  if (!data.length) { $("doc-list").innerHTML = `<p class="hint">Todavía no hay documentos.</p>`; return; }
+  $("doc-list").innerHTML = data.map((d) => {
+    const err = d.fuera && String(d.motivo ?? "").startsWith("Subido por error");
+    const what = [DOC_TYPE[d.tipo] ?? d.tipo ?? "Documento", d.emisor, d.numero ? `nº ${d.numero}` : null, d.fecha, d.total_cents != null ? eur(d.total_cents) : null].filter(Boolean).map(esc).join(" · ");
+    const state = d.fuera ? `<span class="hint">Fuera: ${esc(d.motivo ?? "")}</span>` : d.anterior_al_arranque ? `<span class="hint">Anterior al arranque: no cuenta en el periodo</span>` : "";
+    const action = !d.fuera
+      ? `<input data-why placeholder="Motivo (opcional)" style="margin-top:6px"><button class="sec" data-doc="error">Subido por error</button>`
+      : err ? `<input data-why placeholder="Motivo para volver a activarlo" style="margin-top:6px"><button class="sec" data-doc="restore">Volver a activar</button>` : "";
+    return `<div class="card" data-d="${esc(d.id)}" style="margin:8px 0"><p><b>${esc(d.nombre ?? "")}</b><br>${what}</p>${state}${action}<div class="ans"></div></div>`;
+  }).join("");
+}
+$("doc-go").addEventListener("click", loadDocuments);
+$("doc-list").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-doc]"); if (!b) return;
+  const box = b.closest("[data-d]");
+  const why = box.querySelector("[data-why]")?.value.trim() ?? "";
+  b.disabled = true;
+  const r = b.dataset.doc === "error"
+    ? await sb.rpc("mark_document_error", { p_document: box.dataset.d, p_reason: why || null })
+    : await sb.rpc("restore_document", { p_document: box.dataset.d, p_reason: why });
+  if (r.error) { b.disabled = false; return show(box.querySelector(".ans"), "bad", esc(r.error.message)); }
+  await loadDocuments();
+});
+
+// ---------- fecha de arranque ----------
+function showBooksFrom() {
+  const f = ctx.company?.books_from;
+  $("bf-now").textContent = f ? `Ahora: ${f.split("-").reverse().join("/")}.` : "Todavía no hay fecha de arranque.";
+  if (f) $("bf-date").value = f;
+}
+$("bf-go").addEventListener("click", async (e) => {
+  const date = $("bf-date").value, why = $("bf-why").value.trim();
+  if (!date) return show($("m-bf"), "bad", "Elige la fecha");
+  if (!why) return show($("m-bf"), "bad", "Escribe el motivo");
+  e.target.disabled = true;
+  const { data, error } = await sb.rpc("set_books_from", { p_company: ctx.company.id, p_date: date, p_reason: why });
+  e.target.disabled = false;
+  if (error) return show($("m-bf"), "bad", esc(error.message));
+  ctx.company.books_from = date; showBooksFrom(); $("bf-why").value = "";
+  show($("m-bf"), "ok", `Guardada. Movimientos cambiados: ${esc(data?.movimientos_cambiados ?? 0)}.`);
 });
 
 sb.auth.onAuthStateChange((event) => { if (event === "SIGNED_OUT") view("v-login"); });
