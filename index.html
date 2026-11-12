@@ -168,7 +168,7 @@
 <script>
 // Datos públicos del proyecto (la clave publicable está hecha para ir en la página; los permisos los pone la base de datos)
 const SUPABASE_URL = "https://wxlhhsglmobhgalksfpa.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_rglWawrLOPlcQcVqszGoJw_lztdsB1o";
+const SUPABASE_PUBLISHABLE_KEY = "PEGAR_CLAVE_PUBLICABLE";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 // En la dirección web, el enlace del correo vuelve aquí y entra solo; abierta como archivo, se pega el enlace
@@ -396,7 +396,7 @@ async function runReconcile() {
     if (!ok) return show($("m-r"), "bad", errHtml(body, status));
     const sc = body.suma_de_control;
     const kinds = Object.entries(body.por_tipo).map(([k, n]) => `<tr><td>${esc(KIND[k] ?? k)}</td><td class="n">${n}</td></tr>`).join("");
-    const list = body.avisos ?? [];
+    const list = [...(body.avisos ?? []), ...(body.error_articulos ? [{ message: body.error_articulos }] : [])];
     const li = (a) => `<li>${esc(a.message)}</li>`;
     const av = list.length ? `<p><b>Avisos (${list.length})</b></p><ul class="f">${list.slice(0, 5).map(li).join("")}</ul>`
       + (list.length > 5 ? `<details><summary>y ${list.length - 5} más</summary><ul class="f">${list.slice(5).map(li).join("")}</ul></details>` : "") : "";
@@ -416,9 +416,14 @@ async function loadMyCats() {
 }
 async function loadQuestions() {
   await loadMyCats();
+  // Artículos nuevos de las facturas: pregunta su unidad y avisa de cambios de precio (ficha unidades)
+  // (quien no lleva el dinero no los revisa: no es un error)
+  const ra = await sb.rpc("refresh_articles", { p_company: ctx.company.id });
+  const artWarn = ra.error && !/Sin permiso/.test(ra.error.message)
+    ? `<div class="msg bad">No se pudieron revisar los artículos nuevos: ${esc(ra.error.message)}</div>` : "";
   const { data, error } = await sb.from("pending_questions").select("id, question, source_ref").eq("company_id", ctx.company.id).eq("status", "abierta").order("created_at");
   if (error) return show($("q-list"), "bad", esc(error.message));
-  if (!data.length) { $("q-list").innerHTML = `<p class="hint">No hay preguntas pendientes.</p>`; return; }
+  if (!data.length) { $("q-list").innerHTML = artWarn + `<p class="hint">No hay preguntas pendientes.</p>`; return; }
   // Cargos que proponen las preguntas de «unir factura»
   const expIds = [...new Set(data.filter((q) => q.source_ref?.type === "unir_factura").flatMap((q) => q.source_ref.expense_ids ?? []))];
   const expOf = new Map();
@@ -429,7 +434,7 @@ async function loadQuestions() {
     const { data: ex } = await sb.from("expenses").select("id, expense_date, net_payable_cents").in("id", expIds);
     for (const x of ex ?? []) expOf.set(x.id, x);
   }
-  $("q-list").innerHTML = `<h2 style="margin-top:20px">Preguntas (${data.length})</h2>` + data.map((q) => {
+  $("q-list").innerHTML = artWarn + `<h2 style="margin-top:20px">Preguntas (${data.length})</h2>` + data.map((q) => {
     const t = q.source_ref?.type; const id = esc(q.id);
     let form = "";
     if (t === "tarjeta") form = `<button data-a='{"own":true}'>Sí, es del negocio</button> <button class="sec" data-a='{"own":false}'>No</button>`;
@@ -446,6 +451,10 @@ async function loadQuestions() {
     else if (t === "remitente") form = `<button data-a='{"accept":true}'>Sí, es proveedor</button> <button class="sec" data-a='{"accept":false}'>No (no leer nunca)</button>`;
     else if (t === "direccion_proveedor") form = `<button data-a='{"accept":true}'>Sí, añádela</button> <button class="sec" data-a='{"accept":false}'>No</button>`;
     else if (t === "aviso_sin_adjunto") form = `<button data-a='{"accept":true}'>Visto</button>`;
+    else if (t === "unidad_articulo") form = `<select data-unit><option value="pieza">Por pieza</option><option value="kg">Por kilo</option><option value="l">Por litro</option><option value="caja">Por caja</option></select>
+      <span data-pack hidden><input data-packqty type="number" min="0" step="any" placeholder="¿Cuánto trae?" style="width:9em"> <select data-packunit><option value="pieza">piezas</option><option value="kg">kilos</option><option value="l">litros</option></select></span>
+      <button data-a="unidad">Guardar</button>`;
+    else if (t === "aviso_precio") form = `<button data-a="precio_visto">Visto</button>`;
     else if (t === "antes_arranque") form = `<button data-a="antes_si">Sí, es de antes</button> <button class="sec" data-a="antes_no">No</button>`;
     else if (t === "proveedor_nuevo") form = `<div class="row"><div><label>Nombre</label><input name="legal_name" value="${esc(q.source_ref?.name ?? "")}"></div>
         <div><label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((c) => `<option>${esc(c)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
@@ -460,7 +469,7 @@ async function loadQuestions() {
         <button data-a="form">Guardar</button>`;
     // «Unir factura» no se puede saltar: saltarla dejaría la compra contada dos veces
     // Tampoco «remitente» ni «proveedor nuevo»: hasta contestar, no se lee o no se cuenta
-    const skip = ["unir_factura", "remitente", "proveedor_nuevo", "aviso_sin_adjunto", "antes_arranque"].includes(t) ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
+    const skip = ["unir_factura", "remitente", "proveedor_nuevo", "aviso_sin_adjunto", "antes_arranque", "unidad_articulo", "aviso_precio"].includes(t) ? "" : `<button class="sec" data-a='{"discard":true}'>No lo sé / saltar</button>`;
     return `<div class="card" data-q="${id}" style="margin:10px 0"><p>${esc(q.question)}</p>${form}
       ${skip}<div class="ans"></div></div>`;
   }).join("");
@@ -515,8 +524,61 @@ async function loadContacts() {
     <select name="pay">${Object.entries(PAY).map(([k, n]) => `<option value="${k}" ${k === c.default_payment_method ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
     <label>¿Qué es?</label><select name="category"><option value="">—</option>${allCats().map((k) => `<option ${k === c.category ? "selected" : ""}>${esc(k)}</option>`).join("")}<option value="__otra">Otra (escríbela)…</option></select>
     <input name="category_new" class="hidden" placeholder="Escribe qué es">
-    <button data-save>Guardar cambios</button><div class="ans"></div></details>`).join("");
+    <button data-save>Guardar cambios</button><div class="ans"></div>
+    <div data-arts style="margin-top:10px"><button class="sec" data-arts-go>Artículos, unidades y precios</button></div></details>`).join("");
 }
+
+// Artículos de un proveedor (ficha unidades): la unidad confirmada, cambiarla con motivo y el historial de precios a petición
+const UNIT = { pieza: "por pieza", kg: "por kilo", l: "por litro", caja: "por caja" };
+const unitText = (a) => !a.unit ? "sin confirmar" : a.unit === "caja" ? `por caja de ${String(a.pack_qty).replace(".", ",")} ${({ pieza: "piezas", kg: "kilos", l: "litros" })[a.pack_unit]}` : UNIT[a.unit];
+const euro4 = (n) => n == null ? "—" : Number(n).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + " €";
+async function loadArticles(box) {
+  const out = box.querySelector("[data-arts]");
+  const { data, error } = await sb.from("supplier_articles").select("id, name, unit, pack_qty, pack_unit").eq("contact_id", box.dataset.c).order("name");
+  if (error) return show(out, "bad", esc(error.message));
+  if (!data.length) { out.innerHTML = `<p class="hint">No hay artículos de este proveedor. Salen de sus facturas, y solo los ven el propietario, el gerente y el gestor.</p>`; return; }
+  out.innerHTML = `<h3>Artículos</h3>` + data.map((a) => `<div data-art="${esc(a.id)}" style="margin:6px 0;border-top:1px solid #eee;padding-top:6px">
+    <b>${esc(a.name)}</b> <span class="hint">· ${esc(unitText(a))}</span><br>
+    <button class="sec" data-art-a="hist">Precios</button> <button class="sec" data-art-a="chg">Cambiar unidad</button><div data-art-out></div></div>`).join("");
+}
+$("p-list").addEventListener("click", async (e) => {
+  const go = e.target.closest("button[data-arts-go]");
+  if (go) { go.disabled = true; return loadArticles(go.closest("[data-c]")); }
+  const b = e.target.closest("button[data-art-a]"); if (!b) return;
+  const row = b.closest("[data-art]"); const out = row.querySelector("[data-art-out]"); const id = row.dataset.art;
+  if (b.dataset.artA === "hist") {
+    b.disabled = true;
+    const { data, error } = await sb.rpc("article_price_history", { p_article: id });
+    b.disabled = false;
+    if (error) return show(out, "bad", esc(error.message));
+    const u = data.unidad === "sin confirmar" ? "" : `/${data.unidad}`;
+    if (!data.compras.length) { out.innerHTML = `<p class="hint">Sin compras todavía.</p>`; return; }
+    if (data.unidad === "sin confirmar") { out.innerHTML = `<p class="hint">Confirma antes la unidad para ver el precio por unidad.</p>`; return; }
+    const chg = (c) => c.cambio_eur == null ? "" : `${c.cambio_eur > 0 ? "+" : ""}${euro4(c.cambio_eur)} (${c.cambio_pct > 0 ? "+" : ""}${String(c.cambio_pct).replace(".", ",")} %)`;
+    out.innerHTML = `<p>Último: <b>${euro4(data.ultimo)}${u}</b> · más bajo ${euro4(data.minimo)} · más alto ${euro4(data.maximo)}</p>
+      <table><tr><th>Fecha</th><th>Factura</th><th>Cantidad</th><th>Precio${esc(u)}</th><th>Cambio</th></tr>${data.compras.map((c) => `<tr>
+        <td>${c.fecha ? esc(new Date(c.fecha).toLocaleDateString("es-ES")) : "sin fecha"}</td><td>${esc(c.factura ?? "")}</td>
+        <td>${c.cantidad == null ? "" : esc(Number(c.cantidad).toLocaleString("es-ES", { maximumFractionDigits: 4 }))}</td><td>${euro4(c.precio)}</td><td>${esc(chg(c))}</td></tr>`).join("")}</table>`;
+  } else if (b.dataset.artA === "chg") {
+    out.innerHTML = `<select data-unit><option value="pieza">Por pieza</option><option value="kg">Por kilo</option><option value="l">Por litro</option><option value="caja">Por caja</option></select>
+      <span data-pack hidden><input data-packqty type="number" min="0" step="any" placeholder="¿Cuánto trae?" style="width:9em"> <select data-packunit><option value="pieza">piezas</option><option value="kg">kilos</option><option value="l">litros</option></select></span>
+      <input data-why placeholder="Motivo del cambio" style="margin-top:6px"><button data-art-a="chg-save">Guardar unidad</button><div class="ans"></div>`;
+  } else if (b.dataset.artA === "chg-save") {
+    const unit = out.querySelector("[data-unit]").value; const why = out.querySelector("[data-why]").value.trim();
+    if (!why) return show(out.querySelector(".ans"), "bad", "Escribe el motivo");
+    b.disabled = true;
+    const { error } = await sb.rpc("change_article_unit", { p_article: id, p_unit: unit,
+      p_pack: unit === "caja" ? Number(out.querySelector("[data-packqty]").value) : null,
+      p_pack_unit: unit === "caja" ? out.querySelector("[data-packunit]").value : null, p_reason: why });
+    b.disabled = false;
+    if (error) return show(out.querySelector(".ans"), "bad", esc(error.message));
+    loadArticles(row.closest("[data-c]"));
+  }
+});
+$("p-list").addEventListener("change", (e) => {
+  const u = e.target.closest("select[data-unit]"); if (!u) return;
+  u.parentElement.querySelector("[data-pack]").hidden = u.value !== "caja";
+});
 $("p-go").addEventListener("click", loadContacts);
 $("p-list").addEventListener("change", (e) => {
   if (e.target.name !== "category") return;
@@ -571,6 +633,17 @@ $("q-list").addEventListener("click", async (e) => {
       if (!ids.length) return show(box.querySelector(".ans"), "bad", "Marca al menos un cargo");
       answer = { accept: true, expense_ids: ids };
     } else answer = { accept: false };
+  } else if (b.dataset.a === "unidad" || b.dataset.a === "precio_visto") {
+    b.disabled = true;
+    const unit = box.querySelector("[data-unit]")?.value;
+    const r = b.dataset.a === "unidad"
+      ? await sb.rpc("answer_article_unit", { p_question: box.dataset.q, p_unit: unit,
+          p_pack: unit === "caja" ? Number(box.querySelector("[data-packqty]").value) : null,
+          p_pack_unit: unit === "caja" ? box.querySelector("[data-packunit]").value : null })
+      : await sb.rpc("close_price_alert", { p_question: box.dataset.q });
+    if (r.error) { b.disabled = false; return show(box.querySelector(".ans"), "bad", esc(r.error.message)); }
+    if (b.dataset.a === "unidad") return loadQuestions();  // puede haber salido un aviso de precio
+    box.remove(); return;
   } else if (b.dataset.a === "antes_si" || b.dataset.a === "antes_no") {
     // Fecha de arranque: respuesta propia (no crea regla)
     b.disabled = true;
@@ -602,6 +675,10 @@ async function loadDocuments() {
   }).join("");
 }
 $("doc-go").addEventListener("click", loadDocuments);
+$("q-list").addEventListener("change", (e) => {
+  const u = e.target.closest("select[data-unit]"); if (!u) return;
+  u.parentElement.querySelector("[data-pack]").hidden = u.value !== "caja";
+});
 $("doc-list").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-doc]"); if (!b) return;
   const box = b.closest("[data-d]");
