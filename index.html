@@ -530,11 +530,11 @@ async function loadContacts() {
 
 // Artículos de un proveedor (ficha unidades): la unidad confirmada, cambiarla con motivo y el historial de precios a petición
 const UNIT = { pieza: "por pieza", kg: "por kilo", l: "por litro", caja: "por caja" };
-const unitText = (a) => !a.unit ? "sin confirmar" : a.unit === "caja" ? `por caja de ${String(a.pack_qty).replace(".", ",")} ${({ pieza: "piezas", kg: "kilos", l: "litros" })[a.pack_unit]}` : UNIT[a.unit];
+const unitText = (a) => (!a.unit ? "sin confirmar" : a.unit === "caja" ? `por caja de ${String(a.pack_qty).replace(".", ",")} ${({ pieza: "piezas", kg: "kilos", l: "litros" })[a.pack_unit]}` : UNIT[a.unit]) + (a.unit && a.unit_source === "deducida" ? " (deducida)" : "");
 const euro4 = (n) => n == null ? "—" : Number(n).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + " €";
 async function loadArticles(box) {
   const out = box.querySelector("[data-arts]");
-  const { data, error } = await sb.from("supplier_articles").select("id, name, unit, pack_qty, pack_unit").eq("contact_id", box.dataset.c).order("name");
+  const { data, error } = await sb.from("supplier_articles").select("id, name, unit, pack_qty, pack_unit, unit_source").eq("contact_id", box.dataset.c).order("name");
   if (error) return show(out, "bad", esc(error.message));
   if (!data.length) { out.innerHTML = `<p class="hint">No hay artículos de este proveedor. Salen de sus facturas, y solo los ven el propietario, el gerente y el gestor.</p>`; return; }
   out.innerHTML = `<h3>Artículos</h3>` + data.map((a) => `<div data-art="${esc(a.id)}" style="margin:6px 0;border-top:1px solid #eee;padding-top:6px">
